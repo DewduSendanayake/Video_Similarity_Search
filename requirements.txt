@@ -1,0 +1,7 @@
+pillow
+faiss-cpu
+torch
+transformers
+decord
+boto3
+numpy
