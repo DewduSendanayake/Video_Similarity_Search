@@ -14,7 +14,7 @@ This project builds a video similarity search system that:
 * Indexes video embeddings using **FAISS**, a fast similarity search library ⚡
 * Enables querying by embedding any new video and retrieving the most similar videos by content 🎞️
 
-All processing and search run **locally** — no cloud costs, no external APIs — fully open and customizable.
+All processing and search run **locally** - no cloud costs, no external APIs — fully open and customizable.
 
 ---
 
