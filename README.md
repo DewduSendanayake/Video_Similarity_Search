@@ -1,6 +1,6 @@
 # 🎥 Video Similarity Search Engine
 
-A **local, efficient, and scalable video similarity search** pipeline leveraging frame-level embeddings and vector search — all running **offline and cost-free**! Perfect for content-based video retrieval in diverse collections of varying video lengths.
+A **local, efficient, and scalable video similarity search** pipeline leveraging frame-level embeddings and vector search - all running **offline and cost-free**! Perfect for content-based video retrieval in diverse collections of varying video lengths.
 
 ---
 
@@ -121,3 +121,4 @@ python scripts/query_index.py videos/your_query_video.mp4
 * [FAISS](https://github.com/facebookresearch/faiss) for state-of-the-art vector search
 * [Decord](https://github.com/dmlc/decord) for efficient video frame decoding
 * Huggingface Transformers for seamless model integration
+
