@@ -2,14 +2,21 @@
 import torch
 import numpy as np
 from PIL import Image
-from transformers import CLIPProcessor, CLIPModel
+from transformers import VideoMAEImageProcessor, VideoMAEModel
+from transformers import CLIPVisionModel, CLIPImageProcessor
 
 # choose device if available
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-model.eval()
+print(f"Loading VideoMAE model on {device}...")
+videomae_processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
+videomae_model = VideoMAEModel.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics").to(device)
+videomae_model.eval()
+
+print(f"Loading CLIP model on {device}...")
+clip_processor = CLIPImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
+clip_model = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+clip_model.eval()
 
 def frames_to_pil(frames):
     """
@@ -18,41 +25,65 @@ def frames_to_pil(frames):
     """
     return [Image.fromarray(f) for f in frames]
 
-def embed_video(frames, batch_size=8):
+def embed_video(frames, num_frames_to_use=16):
     """
     frames: numpy array (N, H, W, 3)
     returns: 1D numpy embedding vector (float32)
+    
+    Combines VideoMAE (action/content) + CLIP (aesthetics/style) embeddings.
+    - VideoMAE: 768-dim (temporal understanding, actions)
+    - CLIP: 512-dim (visual style, aesthetics)
+    - Combined: 1280-dim normalized vector
     """
     # Ensure dtype uint8
     frames = frames.astype("uint8")
+    
+    if len(frames) == 0:
+        raise ValueError("No frames provided to embed_video. Video might be empty or unreadable.")
+
     pil_frames = frames_to_pil(frames)
+    
+    # Sample frames if we have more than needed
+    if len(pil_frames) > num_frames_to_use:
+        indices = np.linspace(0, len(pil_frames) - 1, num_frames_to_use).astype(int)
+        pil_frames = [pil_frames[i] for i in indices]
+    elif len(pil_frames) < num_frames_to_use:
+        # Pad by duplicating the last frame
+        while len(pil_frames) < num_frames_to_use:
+            pil_frames.append(pil_frames[-1])
 
-    all_feats = []
-    model.eval()
     with torch.no_grad():
-        # process in small batches to avoid OOM
-        for i in range(0, len(pil_frames), batch_size):
-            batch = pil_frames[i:i + batch_size]
-            inputs = processor(images=batch, return_tensors="pt").to(device)
-            image_feats = model.get_image_features(**inputs)  # (B, dim)
-            # move to cpu and to numpy
-            image_feats = image_feats.cpu().numpy()
-            all_feats.append(image_feats)
+        # ============ VideoMAE Embedding ============
+        videomae_inputs = videomae_processor(pil_frames, return_tensors="pt").to(device)
+        videomae_outputs = videomae_model(**videomae_inputs)
+        
+        # Mean pool across patches for video-level embedding
+        videomae_emb = videomae_outputs.last_hidden_state.mean(dim=1)[0].cpu().numpy()  # (768,)
+        
+        # Normalize VideoMAE embedding
+        videomae_norm = np.linalg.norm(videomae_emb)
+        if videomae_norm > 0:
+            videomae_emb = videomae_emb / videomae_norm
+        
+        # ============ CLIP Embedding ============
+        clip_inputs = clip_processor(images=pil_frames, return_tensors="pt").to(device)
+        clip_outputs = clip_model(**clip_inputs)
+        
+        # Average pooling across frames for video-level embedding
+        clip_emb = clip_outputs.pooler_output.mean(dim=0).cpu().numpy()  # (512,)
+        
+        # Normalize CLIP embedding
+        clip_norm = np.linalg.norm(clip_emb)
+        if clip_norm > 0:
+            clip_emb = clip_emb / clip_norm
+        
+        # ============ Combine Embeddings ============
+        # Concatenate normalized embeddings
+        combined_emb = np.concatenate([videomae_emb, clip_emb])  # (1280,)
+        
+        # Normalize the combined embedding for cosine similarity
+        combined_norm = np.linalg.norm(combined_emb)
+        if combined_norm > 0:
+            combined_emb = combined_emb / combined_norm
 
-    if len(all_feats) == 0:
-        raise RuntimeError("No frames processed (empty frame list).")
-
-    all_feats = np.vstack(all_feats).astype("float32")  # (N, dim)
-
-    # Normalize per-vector then mean-pool (cosine-friendly)
-    norms = np.linalg.norm(all_feats, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    all_feats = all_feats / norms
-
-    video_emb = all_feats.mean(axis=0)
-    # final normalize
-    vnorm = np.linalg.norm(video_emb)
-    if vnorm > 0:
-        video_emb = video_emb / vnorm
-
-    return video_emb.astype("float32")
+    return combined_emb.astype("float32")
