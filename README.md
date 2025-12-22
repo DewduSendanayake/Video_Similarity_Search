@@ -4,7 +4,6 @@ A **local, efficient, and scalable video similarity search** pipeline leveraging
 
 ---
 
-
 ## 🔍 Overview
 
 This project builds a video similarity search system that:
@@ -120,6 +119,7 @@ python scripts/query_index.py videos/your_query_video.mp4
 * [FAISS](https://github.com/facebookresearch/faiss) for state-of-the-art vector search
 * [Decord](https://github.com/dmlc/decord) for efficient video frame decoding
 * Huggingface Transformers for seamless model integration
+
 
 
 
